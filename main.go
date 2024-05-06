@@ -20,13 +20,14 @@ type Config struct {
 }
 
 type Server struct {
-	Config                   // the configuration data is unfold in another structure to keep it clean
-	peers     map[*Peer]bool // peers are basically the client connections that are getting connected to the server
-	ln        net.Listener   // tcp server connecton
-	addPeerCh chan *Peer     // channel to add new clients
-	quitCh    chan struct{}  // idk wtf is this
-	msgCh     chan Message   // idk this either
-	kv        *KeyVal        // our key value database
+	Config                      // the configuration data is unfold in another structure to keep it clean
+	peers        map[*Peer]bool // peers are basically the client connections that are getting connected to the server
+	ln           net.Listener   // tcp server connecton
+	addPeerCh    chan *Peer     // channel to add new clients
+	deletePeerCh chan *Peer     // channel to add delete clients
+	quitCh       chan struct{}  // idk wtf is this
+	msgCh        chan Message   // idk this either
+	kv           *KeyVal        // our key value database
 }
 
 func NewServer(cfg Config) *Server {
@@ -35,12 +36,13 @@ func NewServer(cfg Config) *Server {
 	}
 
 	return &Server{
-		Config:    cfg,
-		peers:     make(map[*Peer]bool),
-		addPeerCh: make(chan *Peer),
-		quitCh:    make(chan struct{}),
-		msgCh:     make(chan Message),
-		kv:        NewKeyVal(),
+		Config:       cfg,
+		peers:        make(map[*Peer]bool),
+		addPeerCh:    make(chan *Peer),
+		deletePeerCh: make(chan *Peer),
+		quitCh:       make(chan struct{}),
+		msgCh:        make(chan Message),
+		kv:           NewKeyVal(),
 	}
 }
 
@@ -82,16 +84,17 @@ func (s *Server) loop() {
 	for {
 		select {
 		case msg := <-s.msgCh:
-			// if bytes.Equal(, []byte{255, 244, 255, 253, 6}) {
-			// 	// handle disconnection
-			// }
 			if err := s.handleRawMessage(msg); err != nil {
 				slog.Error("raw message error ", "err", err)
 			}
 		case <-s.quitCh:
 			return
 		case peer := <-s.addPeerCh:
+			slog.Info("new peer connected", "remoteAddr", peer.conn.RemoteAddr())
 			s.peers[peer] = true
+		case peer := <-s.deletePeerCh:
+			slog.Info("peer disconnected", "remoteAddr", peer.conn.RemoteAddr())
+			delete(s.peers, peer)
 		}
 	}
 }
@@ -108,9 +111,8 @@ func (s *Server) acceptLoop() error {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	peer := NewPeer(conn, s.msgCh)
+	peer := NewPeer(conn, s.msgCh, s.deletePeerCh)
 	s.addPeerCh <- peer
-	slog.Info("new peer connected", "remoteAddr", conn.RemoteAddr())
 	if err := peer.readLoop(); err != nil {
 		slog.Error("peer read error", "err", err, "remoteAddr", conn.RemoteAddr())
 	}

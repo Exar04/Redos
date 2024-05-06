@@ -55,3 +55,7 @@ func (c *Client) Get(ctx context.Context, key string) (string, error) {
 	n, err := c.conn.Read(b)
 	return string(b[:n]), nil
 }
+
+func (c *Client) Close() error {
+	return c.conn.Close()
+}

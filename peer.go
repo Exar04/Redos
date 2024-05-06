@@ -12,16 +12,18 @@ import (
 type Peer struct {
 	conn  net.Conn
 	msgCh chan Message
+	delCh chan *Peer
 }
 
 func (p *Peer) Send(msg []byte) (int, error) {
 	return p.conn.Write(msg)
 }
 
-func NewPeer(conn net.Conn, msgCh chan Message) *Peer {
+func NewPeer(conn net.Conn, msgCh chan Message, delChan chan *Peer) *Peer {
 	return &Peer{
 		conn:  conn,
 		msgCh: msgCh,
+		delCh: delChan,
 	}
 }
 
@@ -31,6 +33,7 @@ func (p *Peer) readLoop() error {
 	for {
 		v, _, err := rd.ReadValue()
 		if err == io.EOF {
+			p.delCh <- p
 			break
 		}
 		if err != nil {
@@ -60,7 +63,6 @@ func (p *Peer) readLoop() error {
 						key: v.Array()[1].Bytes(),
 						val: v.Array()[2].Bytes(),
 					}
-					// fmt.Println("geot SET cmd", cmd)
 					p.msgCh <- Message{
 						cmd:  cmd,
 						peer: p,
